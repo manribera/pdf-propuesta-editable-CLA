@@ -1,0 +1,10 @@
+**pycache**/
+*.pyc
+.env
+.venv/
+venv/
+
+outputs/
+uploads/
+
+.streamlit/
