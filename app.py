@@ -18,6 +18,7 @@ from reportlab.platypus import (
     TableStyle,
     PageBreak,
     Image,
+    Flowable,
 )
 from reportlab.pdfgen import canvas
 
@@ -263,38 +264,45 @@ class EditableCanvas(canvas.Canvas):
             self.rect(x, y, 10, 10)
 
 
-class ObservationBox:
+class ObservationBox(Flowable):
     def __init__(self, height=45, prefix="obs"):
+        super().__init__()
         self.height = height
         self.prefix = prefix
+        self.width = 0
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
         return availWidth, self.height
 
-    def drawOn(self, canv, x, y, _sW=0):
-        if isinstance(canv, EditableCanvas):
-            canv.text_field(x, y, self.width, self.height, self.prefix)
+    def draw(self):
+        if isinstance(self.canv, EditableCanvas):
+            self.canv.text_field(0, 0, self.width, self.height, self.prefix)
         else:
-            canv.rect(x, y, self.width, self.height)
+            self.canv.rect(0, 0, self.width, self.height)
 
 
-class CheckboxLine:
+class CheckboxLine(Flowable):
     def __init__(self, text, prefix="chk"):
+        super().__init__()
         self.text = text
         self.prefix = prefix
+        self.width = 0
         self.height = 16
 
     def wrap(self, availWidth, availHeight):
         self.width = availWidth
         return availWidth, self.height
 
-    def drawOn(self, canv, x, y, _sW=0):
-        if isinstance(canv, EditableCanvas):
-            canv.checkbox_field(x, y + 3, self.prefix)
-        canv.setFont("Helvetica", 9)
-        canv.setFillColor(colors.black)
-        canv.drawString(x + 16, y + 3, self.text)
+    def draw(self):
+        if isinstance(self.canv, EditableCanvas):
+            self.canv.checkbox_field(0, 3, self.prefix)
+        else:
+            self.canv.rect(0, 3, 10, 10)
+
+        self.canv.setFont("Helvetica", 9)
+        self.canv.setFillColor(colors.black)
+        self.canv.drawString(16, 3, self.text)
 
 
 def make_pdf(data: dict, output_type: str) -> bytes:
