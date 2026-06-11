@@ -229,7 +229,7 @@ class EditableCanvas(canvas.Canvas):
 
     def text_field(self, x, y, w, h, name_prefix="obs"):
         if self.editable:
-            self.acroform.textfield(
+           self._acroform.textfield(
                 name=self.next_field_name(name_prefix),
                 x=x,
                 y=y,
@@ -248,7 +248,7 @@ class EditableCanvas(canvas.Canvas):
 
     def checkbox_field(self, x, y, name_prefix="chk"):
         if self.editable:
-            self.acroform.checkbox(
+            self._acroform.checkbox(
                 name=self.next_field_name(name_prefix),
                 x=x,
                 y=y,
