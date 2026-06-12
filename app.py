@@ -113,35 +113,23 @@ def get_spreadsheet_id() -> str:
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
-    if gspread is None or Credentials is None:
-        raise RuntimeError(
-            "Faltan dependencias de Google Sheets. Agregue gspread y google-auth en requirements.txt."
+    try:
+        creds_info = dict(st.secrets["gcp_service_account"])
+
+        credentials = Credentials.from_service_account_info(
+            creds_info,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
         )
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
+        client = gspread.authorize(credentials)
+        return client
 
-    creds_info = None
-    for key in ("gcp_service_account", "google_service_account", "service_account"):
-        try:
-            if key in st.secrets:
-                creds_info = dict(st.secrets[key])
-                break
-        except Exception:
-            pass
-
-    if not creds_info:
-        raise RuntimeError(
-            "No se encontraron credenciales en st.secrets. Configure [gcp_service_account] en secrets."
-        )
-
-    credentials = Credentials.from_service_account_info(creds_info, scopes=scopes)
-    return gspread.authorize(credentials)
-
-
-def get_workbook():
+    except Exception as e:
+        st.error(f"ERROR GOOGLE REAL: {type(e).__name__} - {repr(e)}")
+        st.stop()
     sheet_id = get_spreadsheet_id()
     if not sheet_id:
         raise RuntimeError(
