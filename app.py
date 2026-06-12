@@ -21,7 +21,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 APP_TITLE = "Editor de Propuestas CLA - ESS"
 YEAR = "2026"
 CONTACT_EMAIL = "sembremosseguridad.dppp@msp.go.cr"
-LOGO_PATH = Path("assets/logo_ess.png")
+LOGO_PATH = Path("assetslogo_ess.png")
 
 PAGE_W, PAGE_H = letter
 MARGIN_X = 0.55 * inch
