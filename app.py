@@ -356,7 +356,6 @@ def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
     y -= 42
 
     rows = [
-    rows = [
         ("Delegación Policial", data.get("delegacion", "")),
         ("Dirección Regional", data.get("region", "")),
         ("Fecha de generación", data.get("fecha", "")),
