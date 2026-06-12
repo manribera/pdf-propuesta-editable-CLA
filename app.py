@@ -1,10 +1,9 @@
-
 import io
 import re
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import fitz  # PyMuPDF
 import streamlit as st
@@ -16,10 +15,31 @@ from reportlab.lib.utils import ImageReader
 from PIL import Image as PILImage
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except Exception:
+    gspread = None
+    Credentials = None
+
+
 # =====================================================
 # CONFIGURACIÓN GENERAL
 # =====================================================
 APP_TITLE = "Editor de Propuestas CLA - ESS"
+
+SHEET_CONTROL_VERSIONES = "CONTROL_VERSIONES_STL_APP"
+SHEET_USUARIOS = "USUARIOS_CLA"
+CONTROL_HEADERS = [
+    "ID_REGISTRO",
+    "FECHA_VERSION",
+    "DELEGACION",
+    "VERSION",
+    "TIPO_DOCUMENTO",
+    "ESTADO",
+    "USUARIO",
+    "CARGO",
+]
 YEAR = "2026"
 CONTACT_EMAIL = "sembremosseguridad.dppp@msp.go.cr"
 LOGO_PATH = Path("assetslogo_ess.png")
@@ -69,6 +89,222 @@ def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, o
 
 
 # =====================================================
+# GOOGLE SHEETS - USUARIOS Y CONTROL DE VERSIONES
+# =====================================================
+def _get_secret_value(*names: str) -> str:
+    for name in names:
+        try:
+            value = st.secrets.get(name, "")
+            if value:
+                return str(value)
+        except Exception:
+            pass
+    return ""
+
+
+def get_spreadsheet_id() -> str:
+    return _get_secret_value(
+        "GOOGLE_SHEET_ID",
+        "SPREADSHEET_ID",
+        "SHEET_ID",
+        "spreadsheet_id",
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def get_gspread_client():
+    if gspread is None or Credentials is None:
+        raise RuntimeError(
+            "Faltan dependencias de Google Sheets. Agregue gspread y google-auth en requirements.txt."
+        )
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds_info = None
+    for key in ("gcp_service_account", "google_service_account", "service_account"):
+        try:
+            if key in st.secrets:
+                creds_info = dict(st.secrets[key])
+                break
+        except Exception:
+            pass
+
+    if not creds_info:
+        raise RuntimeError(
+            "No se encontraron credenciales en st.secrets. Configure [gcp_service_account] en secrets."
+        )
+
+    credentials = Credentials.from_service_account_info(creds_info, scopes=scopes)
+    return gspread.authorize(credentials)
+
+
+def get_workbook():
+    sheet_id = get_spreadsheet_id()
+    if not sheet_id:
+        raise RuntimeError(
+            "No se encontró el ID del Google Sheet. Configure GOOGLE_SHEET_ID en secrets."
+        )
+    return get_gspread_client().open_by_key(sheet_id)
+
+
+def get_worksheet(nombre_hoja: str):
+    wb = get_workbook()
+    try:
+        return wb.worksheet(nombre_hoja)
+    except Exception as exc:
+        raise RuntimeError(f"No existe la hoja requerida: {nombre_hoja}") from exc
+
+
+def normalizar(valor: str) -> str:
+    return re.sub(r"\s+", " ", str(valor or "")).strip()
+
+
+def normalizar_si_no(valor: str) -> str:
+    return normalizar(valor).upper()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def obtener_usuarios_activos() -> List[Dict[str, str]]:
+    ws = get_worksheet(SHEET_USUARIOS)
+    registros = ws.get_all_records()
+
+    usuarios = []
+    for row in registros:
+        nombre = normalizar(row.get("NOMBRE", ""))
+        cargo = normalizar(row.get("CARGO", ""))
+        activo = normalizar_si_no(row.get("ACTIVO", ""))
+
+        if nombre and activo == "SI":
+            usuarios.append({
+                "NOMBRE": nombre,
+                "CARGO": cargo,
+            })
+
+    usuarios.sort(key=lambda x: x["NOMBRE"])
+    return usuarios
+
+
+def asegurar_hoja_control():
+    ws = get_worksheet(SHEET_CONTROL_VERSIONES)
+    valores = ws.get_all_values()
+
+    if not valores:
+        ws.append_row(CONTROL_HEADERS, value_input_option="USER_ENTERED")
+        return ws
+
+    encabezados = [normalizar(x) for x in valores[0]]
+    if encabezados[:len(CONTROL_HEADERS)] != CONTROL_HEADERS:
+        raise RuntimeError(
+            f"La hoja {SHEET_CONTROL_VERSIONES} no tiene los encabezados esperados. "
+            f"Deben ser: {' | '.join(CONTROL_HEADERS)}"
+        )
+
+    return ws
+
+
+def leer_control_versiones() -> List[Dict[str, str]]:
+    ws = asegurar_hoja_control()
+    return ws.get_all_records()
+
+
+def crear_id_registro(registros: List[Dict[str, str]]) -> str:
+    hoy = datetime.now().strftime("%Y%m%d")
+    max_consecutivo = 0
+
+    for row in registros:
+        valor = normalizar(row.get("ID_REGISTRO", ""))
+        m = re.match(rf"^{hoy}-(\d{{3}})$", valor)
+        if m:
+            max_consecutivo = max(max_consecutivo, int(m.group(1)))
+
+    return f"{hoy}-{max_consecutivo + 1:03d}"
+
+
+def obtener_siguiente_version(delegacion: str, registros: List[Dict[str, str]]) -> str:
+    delegacion_ref = normalizar(delegacion).lower()
+    max_version = 0
+
+    for row in registros:
+        if normalizar(row.get("DELEGACION", "")).lower() != delegacion_ref:
+            continue
+
+        version = normalizar(row.get("VERSION", ""))
+        m = re.match(r"^V(\d+)$", version, flags=re.IGNORECASE)
+        if m:
+            max_version = max(max_version, int(m.group(1)))
+
+    return f"V{max_version + 1}"
+
+
+def existe_version(delegacion: str, version: str, registros: List[Dict[str, str]]) -> bool:
+    delegacion_ref = normalizar(delegacion).lower()
+    version_ref = normalizar(version).upper()
+
+    for row in registros:
+        if (
+            normalizar(row.get("DELEGACION", "")).lower() == delegacion_ref
+            and normalizar(row.get("VERSION", "")).upper() == version_ref
+        ):
+            return True
+    return False
+
+
+def registrar_version_pdf(
+    delegacion: str,
+    version: str,
+    tipo_documento: str,
+    estado: str,
+    usuario: str,
+    cargo: str,
+) -> Tuple[bool, str]:
+    ws = asegurar_hoja_control()
+    registros = ws.get_all_records()
+
+    if existe_version(delegacion, version, registros):
+        return False, "La versión ya existía en el control. No se creó una fila duplicada."
+
+    id_registro = crear_id_registro(registros)
+    fecha_version = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    ws.append_row(
+        [
+            id_registro,
+            fecha_version,
+            delegacion,
+            version,
+            tipo_documento,
+            estado,
+            usuario,
+            cargo,
+        ],
+        value_input_option="USER_ENTERED",
+    )
+
+    # Limpia caché para que el siguiente cálculo de versión lea el dato nuevo.
+    st.cache_data.clear()
+
+    return True, id_registro
+
+
+def preparar_nueva_version(delegacion: str) -> Tuple[str, str]:
+    registros = leer_control_versiones()
+    version = obtener_siguiente_version(delegacion, registros)
+    id_preview = crear_id_registro(registros)
+    return version, id_preview
+
+
+def limpiar_nombre_archivo(valor: str) -> str:
+    valor = normalizar(valor)
+    valor = re.sub(r"[^\w\-áéíóúÁÉÍÓÚñÑ]+", "_", valor, flags=re.UNICODE)
+    valor = re.sub(r"_+", "_", valor).strip("_")
+    return valor or "Documento"
+
+
+
+# =====================================================
 # UTILIDADES DE TEXTO Y PDF
 # =====================================================
 def clean_text(value: str) -> str:
@@ -82,7 +318,7 @@ def safe(value: str) -> str:
 
 
 def read_pdf_text(uploaded_file) -> str:
-    pdf_bytes = uploaded_file.read()
+    pdf_bytes = uploaded_file.getvalue()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     parts = []
     for page in doc:
@@ -465,13 +701,13 @@ def draw_footer_small(c: canvas.Canvas):
 def draw_instructions(c: canvas.Canvas, data: Dict, page_state: Dict) -> float:
     draw_internal_header(c, page_state)
     y = PAGE_H - 1.05 * inch
-    y = draw_section_bar(c, "INSTRUCCIONES PARA LA REVISIÓN", y)
+    y = draw_section_bar(c, "INSTRUCCIONES PARA LA VALIDACIÓN", y)
     text = (
-        "El presente documento contiene la propuesta preliminar de líneas de acción, acciones estratégicas e indicadores "
-        "construidos a partir del análisis territorial. La persona revisora deberá verificar la coherencia entre la problemática "
-        "priorizada, la línea de acción propuesta, la acción estratégica definida, los indicadores planteados, las metas, unidades "
-        "y el líder estratégico asignado. Las observaciones registradas servirán como insumo para la elaboración de la versión "
-        "corregida o versión final. No Olvide guardar el documento una vez finalizado"
+        "Revise integralmente la propuesta presentada, verificando la coherencia entre la problemática identificada, "
+        "el análisis estructural, las líneas de acción, las acciones estratégicas, los indicadores, las metas, los líderes "
+        "estratégicos y los cogestores propuestos. Consigne observaciones, recomendaciones o ajustes sugeridos únicamente "
+        "cuando contribuyan al fortalecimiento de la propuesta evaluada. Procure que las observaciones sean claras, "
+        "específicas y orientadas a la mejora. No olvide guardar el documento una vez finalizada la revisión."
     )
     y = draw_wrapped(c, text, MARGIN_X, y, CONTENT_W, size=9, leading=12) - 12
     return y
@@ -512,14 +748,23 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
         for a_idx, action in enumerate(actions, start=1):
             y = draw_action(c, action, number, a_idx, y, page_state, editable)
 
-    y = ensure_space(c, y, 130, page_state)
-    y = draw_label(c, "Resultado de revisión de la problemática", y)
+    y = ensure_space(c, y, 180, page_state)
+    y = draw_label(c, "Resultado de la validación de la propuesta", y)
+    y = draw_wrapped(
+        c,
+        "Seleccione la opción que mejor refleje el resultado de la revisión técnica realizada.",
+        MARGIN_X,
+        y,
+        CONTENT_W,
+        size=8,
+        leading=10,
+    ) - 2
 
     options = [
-        "Sin observaciones",
-        "Con observaciones de mejora",
-        "Requiere reformulación parcial",
-        "Requiere reformulación total",
+        "Validada",
+        "Validada con observaciones o recomendaciones",
+        "Validada con ajustes parciales sugeridos",
+        "Validada con ajustes integrales sugeridos",
     ]
 
     for opt_idx, option in enumerate(options, start=1):
@@ -530,9 +775,34 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
         y -= 15
 
     y -= 5
-    y = draw_label(c, "Observaciones generales de la problemática", y)
-    text_field(c, f"obs_general_{number}", MARGIN_X, y - 58, CONTENT_W, 55, editable)
-    y -= 72
+    y = draw_label(c, "Observaciones, recomendaciones o ajustes sugeridos", y)
+    text_field(c, f"obs_general_{number}", MARGIN_X, y - 64, CONTENT_W, 60, editable)
+    y -= 76
+
+    y = draw_wrapped(
+        c,
+        "Los ajustes sugeridos podrán referirse a la problemática identificada, el análisis estructural, "
+        "las líneas de acción, las acciones estratégicas, los indicadores, los líderes estratégicos o los cogestores propuestos.",
+        MARGIN_X,
+        y,
+        CONTENT_W,
+        size=7.5,
+        leading=9,
+    ) - 8
+
+    y = ensure_space(c, y, 85, page_state)
+    y = draw_label(c, "Datos de la validación", y)
+
+    c.setFont("Helvetica-Bold", 8.5)
+    c.setFillColor(BLUE)
+    c.drawString(MARGIN_X, y, "Nombre completo de quien emite la validación:")
+    text_field(c, f"nombre_validador_{number}", MARGIN_X + 2.65 * inch, y - 4, CONTENT_W - 2.65 * inch, 14, editable)
+    y -= 22
+
+    c.drawString(MARGIN_X, y, "Fecha de emisión de observaciones o validación:")
+    text_field(c, f"fecha_validacion_{number}", MARGIN_X + 2.85 * inch, y - 4, 1.6 * inch, 14, editable)
+    y -= 28
+
     return y
 
 
@@ -660,10 +930,12 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
 # =====================================================
 # STREAMLIT UI
 # =====================================================
-def make_output_filename(original_name: str, output_type: str, codigo_control: str) -> str:
-    base = Path(original_name).stem
-    tipo = "EDITABLE" if output_type == "editable" else "FINAL"
-    return f"{base}_{tipo}_{codigo_control}.pdf"
+def make_output_filename(original_name: str, output_type: str, codigo_control: str, delegacion: str, version: str) -> str:
+    base = limpiar_nombre_archivo(Path(original_name).stem)
+    deleg = limpiar_nombre_archivo(delegacion)
+    tipo = "EDITABLE" if output_type == "editable" else "NO_EDITABLE_FINAL"
+    fecha = datetime.now().strftime("%Y-%m-%d")
+    return f"{deleg}_{version}_{tipo}_{fecha}_{codigo_control}.pdf"
 
 
 def preview_data(data: Dict):
@@ -706,6 +978,13 @@ def preview_data(data: Dict):
                     )
 
 
+
+def render_brand_footer():
+    st.markdown("---")
+    st.caption("SIGESS 2026 · Editor de Propuestas CLA - ESS · Versión 1.0")
+    st.caption("Desarrollo técnico: Manfred Rivera Meneses")
+
+
 def main():
     st.title(APP_TITLE)
     st.caption("Coordinación Nacional · Estrategia Sembremos Seguridad · 2026")
@@ -713,63 +992,174 @@ def main():
     st.markdown(
         """
         Suba el PDF de propuesta generado desde el constructor. La aplicación reconstruye el documento
-        y genera una versión optimizada, con campos editables reales cuando se selecciona la versión editable.
+        y genera una versión optimizada, con campos editables reales cuando se selecciona la versión para validación.
         """
     )
 
-    uploaded_pdf = st.file_uploader("Subir PDF de propuesta", type=["pdf"])
+    # -------------------------------------------------
+    # Usuario desde catálogo USUARIOS_CLA
+    # -------------------------------------------------
+    st.subheader("Usuario generador")
 
-    st.subheader("Datos de control documental")
-    generado_por = st.text_input("Nombre de quien genera o guarda esta versión del documento")
-    cargo_generador = st.text_input("Cargo de quien genera el documento")
+    try:
+        usuarios = obtener_usuarios_activos()
+    except Exception as exc:
+        st.error(f"No se pudo cargar la hoja {SHEET_USUARIOS}: {exc}")
+        st.stop()
+
+    if not usuarios:
+        st.error(f"No hay usuarios activos en la hoja {SHEET_USUARIOS}.")
+        st.stop()
+
+    opciones_usuario = [f"{u['NOMBRE']} | {u['CARGO']}" for u in usuarios]
+    seleccion_usuario = st.selectbox(
+        "Seleccione quién genera esta versión del documento",
+        options=opciones_usuario,
+        index=None,
+        placeholder="Seleccione un usuario activo",
+    )
+
+    usuario_data = None
+    if seleccion_usuario:
+        idx_usuario = opciones_usuario.index(seleccion_usuario)
+        usuario_data = usuarios[idx_usuario]
+        st.info(f"Usuario seleccionado: {usuario_data['NOMBRE']} · Cargo: {usuario_data['CARGO']}")
+
     dependencia_generador = st.text_input(
         "Dependencia / Unidad",
         value="Coordinación Nacional - Estrategia Sembremos Seguridad",
     )
 
+    uploaded_pdf = st.file_uploader("Subir PDF de propuesta", type=["pdf"])
+
     output_type = st.radio(
         "Tipo de salida",
         options=["editable", "final"],
-        format_func=lambda x: "Versión editable para revisión" if x == "editable" else "Versión final sin campos editables",
+        format_func=lambda x: "PDF para validación (editable)" if x == "editable" else "PDF final no editable",
     )
 
     if uploaded_pdf is None:
         st.info("Suba un PDF de propuesta para iniciar.")
+        render_brand_footer()
         return
 
     try:
         text = read_pdf_text(uploaded_pdf)
         data = parse_pdf_content(text)
+
+        if not data.get("delegacion"):
+            st.warning("No se detectó la delegación en el PDF. Revise que el documento incluya el campo 'Delegación Policial'.")
+
         preview_data(data)
 
         st.markdown("---")
+        st.subheader("Control de versión")
 
-        if st.button("Generar PDF", type="primary"):
-            if not generado_por.strip() or not cargo_generador.strip():
-                st.error("Debe completar el nombre y cargo de quien genera el documento.")
+        tipo_documento = "Editable" if output_type == "editable" else "No editable"
+        estado_version = "En proceso" if output_type == "editable" else "Final"
+
+        if data.get("delegacion"):
+            try:
+                siguiente_version, id_preview = preparar_nueva_version(data.get("delegacion", ""))
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric("Siguiente versión", siguiente_version)
+                with col_b:
+                    st.metric("Tipo documento", tipo_documento)
+                with col_c:
+                    st.metric("Estado", estado_version)
+            except Exception as exc:
+                st.error(f"No se pudo preparar el control de versiones: {exc}")
                 st.stop()
+        else:
+            siguiente_version = ""
+            st.error("No se puede calcular versión sin delegación.")
+            st.stop()
+
+        st.markdown("---")
+
+        if "ultimo_pdf_generado" in st.session_state:
+            info = st.session_state["ultimo_pdf_generado"]
+            st.success(f"Último PDF generado en esta sesión: {info['nombre_archivo']}")
+            st.download_button(
+                "Descargar último PDF generado",
+                data=info["pdf_bytes"],
+                file_name=info["nombre_archivo"],
+                mime="application/pdf",
+                key="download_ultimo_pdf",
+            )
+
+        if st.button("Generar nueva versión PDF", type="primary"):
+            if not usuario_data:
+                st.error("Debe seleccionar un usuario activo.")
+                st.stop()
+
+            pdf_hash = hashlib.sha256(uploaded_pdf.getvalue()).hexdigest()
+            llave_actual = f"{pdf_hash}|{data.get('delegacion','')}|{output_type}|{usuario_data['NOMBRE']}"
+
+            if st.session_state.get("ultima_llave_generacion") == llave_actual:
+                st.warning(
+                    "Esta misma versión ya fue generada en esta sesión. "
+                    "Use el botón de descarga mostrado arriba para evitar registros duplicados."
+                )
+                st.stop()
+
+            # Recalcular justo antes de guardar, para evitar versiones desactualizadas.
+            registros = leer_control_versiones()
+            version_final = obtener_siguiente_version(data.get("delegacion", ""), registros)
+
+            data["version"] = version_final
+            data["estado"] = estado_version
 
             control = crear_control(
                 data,
-                generado_por.strip(),
-                cargo_generador.strip(),
+                usuario_data["NOMBRE"],
+                usuario_data["CARGO"],
                 dependencia_generador.strip(),
                 output_type,
             )
 
-            pdf_bytes = make_pdf(data, output_type, control)
-            output_name = make_output_filename(uploaded_pdf.name, output_type, control["codigo"])
+            registrado, id_registro = registrar_version_pdf(
+                delegacion=data.get("delegacion", ""),
+                version=version_final,
+                tipo_documento=tipo_documento,
+                estado=estado_version,
+                usuario=usuario_data["NOMBRE"],
+                cargo=usuario_data["CARGO"],
+            )
 
-            st.success("PDF generado correctamente.")
+            if not registrado:
+                st.warning(id_registro)
+                st.stop()
+
+            pdf_bytes = make_pdf(data, output_type, control)
+            output_name = make_output_filename(
+                uploaded_pdf.name,
+                output_type,
+                control["codigo"],
+                data.get("delegacion", ""),
+                version_final,
+            )
+
+            st.session_state["ultima_llave_generacion"] = llave_actual
+            st.session_state["ultimo_pdf_generado"] = {
+                "pdf_bytes": pdf_bytes,
+                "nombre_archivo": output_name,
+            }
+
+            st.success(f"PDF generado correctamente. Registro de versión: {id_registro}")
             st.download_button(
                 "Descargar PDF generado",
                 data=pdf_bytes,
                 file_name=output_name,
                 mime="application/pdf",
+                key=f"download_{id_registro}",
             )
 
     except Exception as exc:
         st.error(f"No se pudo procesar el PDF: {exc}")
+
+    render_brand_footer()
 
 
 if __name__ == "__main__":
