@@ -651,7 +651,7 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
             y = ensure_space(c, y, 35, page_state)
 
     draw_footer_small(c)
-    draw_final_page(c, control)
+    draw_final_page(c, control, editable)
     c.save()
     buffer.seek(0)
     return buffer.read()
