@@ -356,6 +356,7 @@ def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
     y -= 42
 
     rows = [
+    rows = [
         ("Delegación Policial", data.get("delegacion", "")),
         ("Dirección Regional", data.get("region", "")),
         ("Fecha de generación", data.get("fecha", "")),
@@ -368,7 +369,7 @@ def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
         ("Fecha emisión", control.get("fecha", "")),
         ("Hora emisión", control.get("hora", "")),
         ("Generado por", control.get("usuario", "")),
-         "Cargo generador", control.get("cargo", "")),
+        ("Cargo generador", control.get("cargo", "")),
         ("Dependencia", control.get("dependencia", "")),
     ]
 
