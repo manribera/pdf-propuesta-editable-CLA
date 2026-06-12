@@ -113,6 +113,30 @@ def get_spreadsheet_id() -> str:
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
+    def get_workbook():
+    sheet_id = get_spreadsheet_id()
+    if not sheet_id:
+        raise RuntimeError(
+            "No se encontró el ID del Google Sheet. Configure GOOGLE_SHEET_ID en secrets."
+        )
+
+    try:
+        return get_gspread_client().open_by_key(sheet_id)
+    except Exception as e:
+        raise RuntimeError(
+            f"Error abriendo el libro Google Sheet: {type(e).__name__} - {repr(e)}"
+        )
+
+
+def get_worksheet(nombre_hoja: str):
+    wb = get_workbook()
+    try:
+        return wb.worksheet(nombre_hoja)
+    except Exception as exc:
+        raise RuntimeError(
+            f"No existe o no se pudo acceder a la hoja requerida: {nombre_hoja}. "
+            f"Error real: {type(exc).__name__} - {repr(exc)}"
+        )
     try:
         creds_info = dict(st.secrets["gcp_service_account"])
 
