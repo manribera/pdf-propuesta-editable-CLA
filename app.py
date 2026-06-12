@@ -2,8 +2,6 @@ import io
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple
-from datetime import datetime
-import hashlib
 
 import fitz  # PyMuPDF
 import streamlit as st
@@ -38,27 +36,6 @@ WHITE = colors.white
 
 FF_MULTILINE = 4096
 MAXLEN_BIG = 100000
-def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, output_type: str) -> Dict:
-    ahora = datetime.now()
-
-    base = (
-        data.get("delegacion", "") +
-        data.get("version", "") +
-        generado_por +
-        ahora.strftime("%Y%m%d%H%M%S")
-    )
-
-    codigo_hash = hashlib.md5(base.encode("utf-8")).hexdigest()[:10].upper()
-
-    return {
-        "codigo": f"CLA-{codigo_hash}",
-        "fecha": ahora.strftime("%d/%m/%Y"),
-        "hora": ahora.strftime("%H:%M:%S"),
-        "usuario": generado_por,
-        "cargo": cargo,
-        "dependencia": dependencia,
-        "tipo": "Versión editable para revisión" if output_type == "editable" else "Versión final"
-    }
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="wide")
 
@@ -332,7 +309,7 @@ def draw_logo_center(c: canvas.Canvas, y: float, size: float = 1.7 * inch) -> fl
     return y
 
 
-def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
+def draw_cover(c: canvas.Canvas, data: Dict):
     y = PAGE_H - 1.0 * inch
     y = draw_logo_center(c, y, size=1.85 * inch)
 
@@ -363,13 +340,6 @@ def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
         ("Estado", data.get("estado", "")),
         ("Elaborado por", data.get("elaborado_por", "")),
         ("Cargo", data.get("cargo", "")),
-        ("Tipo documento", control.get("tipo", "")),
-        ("Código control", control.get("codigo", "")),
-        ("Fecha emisión", control.get("fecha", "")),
-        ("Hora emisión", control.get("hora", "")),
-        ("Generado por", control.get("usuario", "")),
-        ("Cargo generador", control.get("cargo", "")),
-        ("Dependencia", control.get("dependencia", "")),
     ]
 
     box_x = 1.05 * inch
@@ -405,7 +375,7 @@ def draw_footer_small(c: canvas.Canvas):
     c.line(MARGIN_X, 0.42 * inch, PAGE_W - MARGIN_X, 0.42 * inch)
     c.setFont("Helvetica", 7)
     c.setFillColor(GRAY)
-    c.drawString(MARGIN_X, 0.27 * inch, "Documento controlado. Verifique el código de control indicado en portada.")
+    c.drawString(MARGIN_X, 0.27 * inch, "Documento generado para validación y mejora de propuestas territoriales.")
 
 
 def draw_instructions(c: canvas.Canvas, data: Dict, page_state: Dict) -> float:
@@ -529,36 +499,39 @@ def draw_indicator(c: canvas.Canvas, ind: Dict, p_num: int, a_idx: int, i_idx: i
     return y - 88
 
 
+
 def draw_final_page(c: canvas.Canvas, control: Dict):
     c.showPage()
     y = PAGE_H - 1.25 * inch
     y = draw_logo_center(c, y, size=1.65 * inch)
+
     c.setFillColor(BLUE)
     c.setFont("Helvetica-Bold", 13)
     c.drawCentredString(PAGE_W / 2, y, "COORDINACIÓN NACIONAL")
     y -= 18
     c.drawCentredString(PAGE_W / 2, y, "ESTRATEGIA SEMBREMOS SEGURIDAD")
     y -= 34
+
     c.setFont("Helvetica-Bold", 11)
     c.drawCentredString(PAGE_W / 2, y, "Correo:")
     y -= 16
     c.setFont("Helvetica", 11)
-c.drawCentredString(PAGE_W / 2, y, CONTACT_EMAIL)
+    c.drawCentredString(PAGE_W / 2, y, CONTACT_EMAIL)
 
-y -= 34
-c.setFont("Helvetica-Bold", 11)
-c.drawCentredString(PAGE_W / 2, y, "DOCUMENTO CONTROLADO")
-y -= 16
+    y -= 34
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(PAGE_W / 2, y, "DOCUMENTO CONTROLADO")
+    y -= 16
 
-c.setFont("Helvetica", 10)
-c.drawCentredString(PAGE_W / 2, y, f"Código de control: {control.get('codigo', '')}")
-y -= 14
-c.drawCentredString(PAGE_W / 2, y, f"Tipo: {control.get('tipo', '')}")
-y -= 14
-c.drawCentredString(PAGE_W / 2, y, f"Generado por: {control.get('usuario', '')}")
-y -= 14
-c.drawCentredString(PAGE_W / 2, y, f"Fecha y hora: {control.get('fecha', '')} {control.get('hora', '')}")
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(PAGE_W / 2, y, f"Código de control: {control.get('codigo', '')}")
+    y -= 14
+    c.drawCentredString(PAGE_W / 2, y, f"Tipo: {control.get('tipo', '')}")
+    y -= 14
+    c.drawCentredString(PAGE_W / 2, y, f"Generado por: {control.get('usuario', '')}")
+    y -= 14
     c.drawCentredString(PAGE_W / 2, y, f"Fecha y hora: {control.get('fecha', '')} {control.get('hora', '')}")
+
     y -= 30
     c.setFont("Helvetica-Bold", 12)
     c.drawCentredString(PAGE_W / 2, y, "MINISTERIO DE SEGURIDAD PÚBLICA")
@@ -572,8 +545,9 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
 
-   draw_cover(c, data, control)
+    draw_cover(c, data, control)
     c.showPage()
+
     page_state = {"page": 1}
     y = draw_instructions(c, data, page_state)
 
@@ -588,8 +562,10 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
     draw_footer_small(c)
     draw_final_page(c, control)
     c.save()
+
     buffer.seek(0)
     return buffer.read()
+
 
 # =====================================================
 # STREAMLIT UI
@@ -602,18 +578,23 @@ def make_output_filename(original_name: str, output_type: str, codigo_control: s
 
 def preview_data(data: Dict):
     st.subheader("Vista previa del contenido extraído")
+
     col1, col2, col3 = st.columns(3)
+
     with col1:
         st.write("**Delegación:**", data.get("delegacion", ""))
         st.write("**Región:**", data.get("region", ""))
+
     with col2:
         st.write("**Versión:**", data.get("version", ""))
         st.write("**Estado:**", data.get("estado", ""))
+
     with col3:
         st.write("**Elaborado por:**", data.get("elaborado_por", ""))
         st.write("**Cargo:**", data.get("cargo", ""))
 
     st.markdown("---")
+
     problems = data.get("problematicas", [])
     if not problems:
         st.warning("No se detectaron problemáticas en el PDF.")
@@ -625,12 +606,17 @@ def preview_data(data: Dict):
             st.write("**Línea de acción:**", prob.get("linea_accion", ""))
             st.write("**Líder estratégico:**", prob.get("lider", ""))
             st.write("**Cogestores:**", prob.get("cogestores", ""))
+
             for a_idx, action in enumerate(prob.get("acciones", []), start=1):
                 st.write(f"**Acción {a_idx}:** {action.get('accion', '')}")
                 st.write(f"Responsable: {action.get('responsable', '')}")
                 st.write(f"Trimestres: {action.get('trimestres', '')}")
+
                 for i_idx, ind in enumerate(action.get("indicadores", []), start=1):
-                    st.write(f"Indicador {i_idx}: {ind.get('indicador', '')} | Meta: {ind.get('meta', '')} | Unidad: {ind.get('unidad', '')}")
+                    st.write(
+                        f"Indicador {i_idx}: {ind.get('indicador', '')} | "
+                        f"Meta: {ind.get('meta', '')} | Unidad: {ind.get('unidad', '')}"
+                    )
 
 
 def main():
@@ -645,14 +631,15 @@ def main():
     )
 
     uploaded_pdf = st.file_uploader("Subir PDF de propuesta", type=["pdf"])
-st.subheader("Datos de control documental")
 
-generado_por = st.text_input("Nombre de quien genera el documento")
-cargo_generador = st.text_input("Cargo de quien genera el documento")
-dependencia_generador = st.text_input(
-    "Dependencia / Unidad",
-    value="Coordinación Nacional - Estrategia Sembremos Seguridad"
-)
+    st.subheader("Datos de control documental")
+
+    generado_por = st.text_input("Nombre de quien genera el documento")
+    cargo_generador = st.text_input("Cargo de quien genera el documento")
+    dependencia_generador = st.text_input(
+        "Dependencia / Unidad",
+        value="Coordinación Nacional - Estrategia Sembremos Seguridad"
+    )
 
     output_type = st.radio(
         "Tipo de salida",
@@ -670,22 +657,35 @@ dependencia_generador = st.text_input(
         preview_data(data)
 
         st.markdown("---")
-if st.button("Generar PDF", type="primary"):
 
-    if not generado_por.strip() or not cargo_generador.strip():
-        st.error("Debe completar el nombre y cargo de quien genera el documento.")
-        st.stop()
+        if st.button("Generar PDF", type="primary"):
+            if not generado_por.strip() or not cargo_generador.strip():
+                st.error("Debe completar el nombre y cargo de quien genera el documento.")
+                st.stop()
 
-    control = crear_control(
-        data,
-        generado_por.strip(),
-        cargo_generador.strip(),
-        dependencia_generador.strip(),
-        output_type
-    )
+            control = crear_control(
+                data,
+                generado_por.strip(),
+                cargo_generador.strip(),
+                dependencia_generador.strip(),
+                output_type
+            )
 
-    pdf_bytes = make_pdf(data, output_type, control)
-    output_name = make_output_filename(uploaded_pdf.name, output_type, control["codigo"])
+            pdf_bytes = make_pdf(data, output_type, control)
+            output_name = make_output_filename(uploaded_pdf.name, output_type, control["codigo"])
+
+            st.success("PDF generado correctamente.")
+            st.info(
+                f"Código de control: {control['codigo']} | "
+                f"Fecha: {control['fecha']} {control['hora']}"
+            )
+
+            st.download_button(
+                "Descargar PDF generado",
+                data=pdf_bytes,
+                file_name=output_name,
+                mime="application/pdf",
+            )
 
     except Exception as exc:
         st.error(f"No se pudo procesar el PDF: {exc}")
