@@ -1,6 +1,6 @@
 streamlit
-pymupdf
+PyMuPDF
 reportlab
-pypdf
-pdfrw
 Pillow
+gspread
+google-auth
