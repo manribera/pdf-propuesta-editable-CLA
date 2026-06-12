@@ -543,19 +543,21 @@ def draw_final_page(c: canvas.Canvas, control: Dict):
     c.drawCentredString(PAGE_W / 2, y, "Correo:")
     y -= 16
     c.setFont("Helvetica", 11)
-    c.drawCentredString(PAGE_W / 2, y, CONTACT_EMAIL)
-        y -= 34
-    c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(PAGE_W / 2, y, "DOCUMENTO CONTROLADO")
-    y -= 16
+c.drawCentredString(PAGE_W / 2, y, CONTACT_EMAIL)
 
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(PAGE_W / 2, y, f"Código de control: {control.get('codigo', '')}")
-    y -= 14
-    c.drawCentredString(PAGE_W / 2, y, f"Tipo: {control.get('tipo', '')}")
-    y -= 14
-    c.drawCentredString(PAGE_W / 2, y, f"Generado por: {control.get('usuario', '')}")
-    y -= 14
+y -= 34
+c.setFont("Helvetica-Bold", 11)
+c.drawCentredString(PAGE_W / 2, y, "DOCUMENTO CONTROLADO")
+y -= 16
+
+c.setFont("Helvetica", 10)
+c.drawCentredString(PAGE_W / 2, y, f"Código de control: {control.get('codigo', '')}")
+y -= 14
+c.drawCentredString(PAGE_W / 2, y, f"Tipo: {control.get('tipo', '')}")
+y -= 14
+c.drawCentredString(PAGE_W / 2, y, f"Generado por: {control.get('usuario', '')}")
+y -= 14
+c.drawCentredString(PAGE_W / 2, y, f"Fecha y hora: {control.get('fecha', '')} {control.get('hora', '')}")
     c.drawCentredString(PAGE_W / 2, y, f"Fecha y hora: {control.get('fecha', '')} {control.get('hora', '')}")
     y -= 30
     c.setFont("Helvetica-Bold", 12)
