@@ -1,5 +1,7 @@
 import io
 import re
+import hashlib
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -35,6 +37,27 @@ BLACK = colors.black
 WHITE = colors.white
 
 FF_MULTILINE = 4096
+def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, output_type: str) -> Dict:
+    ahora = datetime.now()
+
+    base = (
+        data.get("delegacion", "") +
+        data.get("version", "") +
+        generado_por +
+        ahora.strftime("%Y%m%d%H%M%S")
+    )
+
+    codigo_hash = hashlib.md5(base.encode("utf-8")).hexdigest()[:10].upper()
+
+    return {
+        "codigo": f"CLA-{codigo_hash}",
+        "fecha": ahora.strftime("%d/%m/%Y"),
+        "hora": ahora.strftime("%H:%M:%S"),
+        "usuario": generado_por,
+        "cargo": cargo,
+        "dependencia": dependencia,
+        "tipo": "Versión editable para revisión" if output_type == "editable" else "Versión final"
+    }
 MAXLEN_BIG = 100000
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="wide")
