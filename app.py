@@ -720,7 +720,7 @@ def main():
     uploaded_pdf = st.file_uploader("Subir PDF de propuesta", type=["pdf"])
 
     st.subheader("Datos de control documental")
-    generado_por = st.text_input("Nombre de quien genera el documento")
+    generado_por = st.text_input("Nombre de quien genera o guarda esta versión del documento")
     cargo_generador = st.text_input("Cargo de quien genera el documento")
     dependencia_generador = st.text_input(
         "Dependencia / Unidad",
