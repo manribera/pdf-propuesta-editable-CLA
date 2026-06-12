@@ -32,21 +32,26 @@ BLUE = colors.HexColor("#0B2E4A")
 LIGHT_BLUE = colors.HexColor("#E8EDF3")
 MID_BLUE = colors.HexColor("#CBD5E1")
 GRAY = colors.HexColor("#475569")
-RED = colors.HexColor("#991B1B")
 BLACK = colors.black
 WHITE = colors.white
 
 FF_MULTILINE = 4096
+MAXLEN_BIG = 100000
+
+st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="wide")
+
+
+# =====================================================
+# CONTROL DOCUMENTAL
+# =====================================================
 def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, output_type: str) -> Dict:
     ahora = datetime.now()
-
     base = (
         data.get("delegacion", "") +
         data.get("version", "") +
         generado_por +
         ahora.strftime("%Y%m%d%H%M%S")
     )
-
     codigo_hash = hashlib.md5(base.encode("utf-8")).hexdigest()[:10].upper()
 
     return {
@@ -56,11 +61,9 @@ def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, o
         "usuario": generado_por,
         "cargo": cargo,
         "dependencia": dependencia,
-        "tipo": "Versión editable para revisión" if output_type == "editable" else "Versión final"
+        "tipo": "Versión editable para revisión" if output_type == "editable" else "Versión final",
     }
-MAXLEN_BIG = 100000
 
-st.set_page_config(page_title=APP_TITLE, page_icon="📄", layout="wide")
 
 # =====================================================
 # UTILIDADES DE TEXTO Y PDF
@@ -114,15 +117,11 @@ def split_problem_blocks(text: str) -> List[Tuple[str, str]]:
 
 
 def parse_indicators_from_action(action_part: str) -> List[Dict[str, str]]:
-    """Parser básico adaptado a PDFs generados por Apps Script.
-    Busca el bloque después de encabezados de indicador/meta/unidad y antes de otra acción o resultado.
-    """
     indicators = []
 
     if "Indicador" not in action_part or "Meta" not in action_part or "Unidad" not in action_part:
         return indicators
 
-    # Acotar zona de tabla
     table_zone = action_part
     if "Observaciones sobre la acción estratégica" in table_zone:
         table_zone = table_zone.split("Observaciones sobre la acción estratégica", 1)[1]
@@ -133,8 +132,14 @@ def parse_indicators_from_action(action_part: str) -> List[Dict[str, str]]:
 
     lines = [clean_text(x) for x in table_zone.splitlines() if clean_text(x)]
     skip_words = [
-        "Indicador Meta Unidad", "Observaciones sobre", "indicador/meta", "Indicador", "Meta", "Unidad"
+        "Indicador Meta Unidad",
+        "Observaciones sobre",
+        "indicador/meta",
+        "Indicador",
+        "Meta",
+        "Unidad",
     ]
+
     useful = []
     for line in lines:
         if any(sw.lower() in line.lower() for sw in skip_words):
@@ -143,11 +148,10 @@ def parse_indicators_from_action(action_part: str) -> List[Dict[str, str]]:
             continue
         useful.append(line)
 
-    # Heurística: intenta separar indicador meta unidad si meta es número o palabra corta al final.
     for line in useful:
         if not line:
             continue
-        # Si termina como: texto 3 intervenciones / texto 12 operativos
+
         m = re.match(r"(.+?)\s+(\d+(?:[\.,]\d+)?)\s+(.+)$", line)
         if m:
             indicators.append({
@@ -158,7 +162,6 @@ def parse_indicators_from_action(action_part: str) -> List[Dict[str, str]]:
         else:
             indicators.append({"indicador": line, "meta": "", "unidad": ""})
 
-    # Evitar duplicados simples
     seen = set()
     unique = []
     for ind in indicators:
@@ -166,6 +169,7 @@ def parse_indicators_from_action(action_part: str) -> List[Dict[str, str]]:
         if key not in seen:
             unique.append(ind)
             seen.add(key)
+
     return unique
 
 
@@ -208,6 +212,7 @@ def parse_pdf_content(text: str) -> Dict:
         lider = extract_between(block, "Líder estratégico", "Observaciones sobre el líder estratégico")
         cogestores = extract_between(block, "Cogestores", "Acción estratégica")
         actions = parse_actions(block)
+
         data["problematicas"].append({
             "problematica": name,
             "id_linea": id_linea,
@@ -216,6 +221,7 @@ def parse_pdf_content(text: str) -> Dict:
             "cogestores": cogestores,
             "acciones": actions,
         })
+
     return data
 
 
@@ -223,6 +229,7 @@ def wrap_lines(c: canvas.Canvas, text: str, width: float, font="Helvetica", size
     text = safe(text)
     if not text:
         return [""]
+
     words = text.split()
     lines = []
     current = ""
@@ -234,13 +241,23 @@ def wrap_lines(c: canvas.Canvas, text: str, width: float, font="Helvetica", size
             if current:
                 lines.append(current)
             current = word
+
     if current:
         lines.append(current)
+
     return lines
 
 
-def draw_wrapped(c: canvas.Canvas, text: str, x: float, y: float, width: float,
-                 font="Helvetica", size=9, leading=12) -> float:
+def draw_wrapped(
+    c: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    font="Helvetica",
+    size=9,
+    leading=12,
+) -> float:
     c.setFont(font, size)
     c.setFillColor(BLACK)
     for line in wrap_lines(c, text, width, font, size):
@@ -317,6 +334,7 @@ def checkbox(c: canvas.Canvas, name: str, x: float, y: float, editable: bool):
         c.setStrokeColor(BLUE)
         c.rect(x, y, 10, 10, fill=0, stroke=1)
 
+
 # =====================================================
 # DIBUJO DEL PDF
 # =====================================================
@@ -332,28 +350,28 @@ def draw_logo_center(c: canvas.Canvas, y: float, size: float = 1.7 * inch) -> fl
     return y
 
 
-def draw_cover(c: canvas.Canvas, data: Dict):
-    y = PAGE_H - 1.0 * inch
-    y = draw_logo_center(c, y, size=1.85 * inch)
+def draw_cover(c: canvas.Canvas, data: Dict, control: Dict):
+    y = PAGE_H - 0.75 * inch
+    y = draw_logo_center(c, y, size=1.55 * inch)
 
     c.setFillColor(BLUE)
-    c.setFont("Helvetica-Bold", 13)
+    c.setFont("Helvetica-Bold", 12)
     c.drawCentredString(PAGE_W / 2, y, "MINISTERIO DE SEGURIDAD PÚBLICA")
-    y -= 18
+    y -= 16
     c.drawCentredString(PAGE_W / 2, y, "COORDINACIÓN NACIONAL")
-    y -= 18
+    y -= 16
     c.drawCentredString(PAGE_W / 2, y, "ESTRATEGIA SEMBREMOS SEGURIDAD")
-    y -= 34
-
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(PAGE_W / 2, y, "PROPUESTA DE LÍNEAS DE ACCIÓN")
-    y -= 22
-    c.drawCentredString(PAGE_W / 2, y, "PARA VALIDACIÓN Y MEJORA")
     y -= 28
 
-    c.setFont("Helvetica-Bold", 18)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(PAGE_W / 2, y, "PROPUESTA DE LÍNEAS DE ACCIÓN")
+    y -= 20
+    c.drawCentredString(PAGE_W / 2, y, "PARA VALIDACIÓN Y MEJORA")
+    y -= 24
+
+    c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(PAGE_W / 2, y, YEAR)
-    y -= 42
+    y -= 34
 
     rows = [
         ("Delegación Policial", data.get("delegacion", "")),
@@ -363,23 +381,31 @@ def draw_cover(c: canvas.Canvas, data: Dict):
         ("Estado", data.get("estado", "")),
         ("Elaborado por", data.get("elaborado_por", "")),
         ("Cargo", data.get("cargo", "")),
+        ("Tipo documento", control.get("tipo", "")),
+        ("Código control", control.get("codigo", "")),
+        ("Fecha emisión", control.get("fecha", "")),
+        ("Hora emisión", control.get("hora", "")),
+        ("Generado por", control.get("usuario", "")),
+        ("Cargo generador", control.get("cargo", "")),
+        ("Dependencia", control.get("dependencia", "")),
     ]
 
-    box_x = 1.05 * inch
-    box_w = PAGE_W - 2.1 * inch
-    row_h = 20
+    box_x = 0.95 * inch
+    box_w = PAGE_W - 1.9 * inch
+    row_h = 18
     c.setStrokeColor(MID_BLUE)
+
     for label, value in rows:
         c.setFillColor(LIGHT_BLUE)
-        c.rect(box_x, y - row_h + 4, 1.8 * inch, row_h, fill=1, stroke=1)
+        c.rect(box_x, y - row_h + 4, 1.75 * inch, row_h, fill=1, stroke=1)
         c.setFillColor(WHITE)
-        c.rect(box_x + 1.8 * inch, y - row_h + 4, box_w - 1.8 * inch, row_h, fill=1, stroke=1)
+        c.rect(box_x + 1.75 * inch, y - row_h + 4, box_w - 1.75 * inch, row_h, fill=1, stroke=1)
         c.setFillColor(BLUE)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(box_x + 6, y - 10, label)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(box_x + 6, y - 9, label)
         c.setFillColor(BLACK)
-        c.setFont("Helvetica", 9)
-        c.drawString(box_x + 1.8 * inch + 6, y - 10, safe(value))
+        c.setFont("Helvetica", 8)
+        c.drawString(box_x + 1.75 * inch + 6, y - 9, safe(value))
         y -= row_h
 
 
@@ -398,11 +424,10 @@ def draw_footer_small(c: canvas.Canvas):
     c.line(MARGIN_X, 0.42 * inch, PAGE_W - MARGIN_X, 0.42 * inch)
     c.setFont("Helvetica", 7)
     c.setFillColor(GRAY)
-    c.drawString(MARGIN_X, 0.27 * inch, "Documento generado para validación y mejora de propuestas territoriales.")
+    c.drawString(MARGIN_X, 0.27 * inch, "Documento controlado. Verifique el código de control indicado en portada.")
 
 
 def draw_instructions(c: canvas.Canvas, data: Dict, page_state: Dict) -> float:
-    y = PAGE_H - 0.9 * inch
     draw_internal_header(c, page_state)
     y = PAGE_H - 1.05 * inch
     y = draw_section_bar(c, "INSTRUCCIONES PARA LA REVISIÓN", y)
@@ -427,6 +452,7 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
     y = ensure_space(c, y, 95, page_state)
     y = draw_label(c, "Línea de acción propuesta", y)
     y = draw_wrapped(c, prob.get("linea_accion", ""), MARGIN_X, y, CONTENT_W, size=9, leading=11) - 5
+
     y = draw_label(c, "Observaciones sobre la línea", y)
     text_field(c, f"obs_linea_{number}", MARGIN_X, y - 48, CONTENT_W, 45, editable)
     y -= 58
@@ -434,6 +460,7 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
     y = ensure_space(c, y, 75, page_state)
     y = draw_label(c, "Líder estratégico", y)
     y = draw_wrapped(c, prob.get("lider", ""), MARGIN_X, y, CONTENT_W, size=9, leading=11) - 5
+
     y = draw_label(c, "Observaciones sobre el líder estratégico", y)
     text_field(c, f"obs_lider_{number}", MARGIN_X, y - 36, CONTENT_W, 34, editable)
     y -= 46
@@ -452,12 +479,14 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
 
     y = ensure_space(c, y, 130, page_state)
     y = draw_label(c, "Resultado de revisión de la problemática", y)
+
     options = [
         "Sin observaciones",
         "Con observaciones de mejora",
         "Requiere reformulación parcial",
         "Requiere reformulación total",
     ]
+
     for opt_idx, option in enumerate(options, start=1):
         checkbox(c, f"rev_{number}_{opt_idx}", MARGIN_X, y - 2, editable)
         c.setFont("Helvetica", 9)
@@ -474,6 +503,7 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
 
 def draw_action(c: canvas.Canvas, action: Dict, p_num: int, a_idx: int, y: float, page_state: Dict, editable: bool) -> float:
     y = ensure_space(c, y, 105, page_state)
+
     c.setFillColor(LIGHT_BLUE)
     c.rect(MARGIN_X, y - 18, CONTENT_W, 18, fill=1, stroke=0)
     c.setFillColor(BLUE)
@@ -504,8 +534,10 @@ def draw_indicator(c: canvas.Canvas, ind: Dict, p_num: int, a_idx: int, i_idx: i
     c.setFillColor(BLUE)
     c.setFont("Helvetica-Bold", 8.5)
     c.drawString(MARGIN_X + 6, y - 13, f"Indicador {i_idx}")
+
     y_text = y - 27
     y_text = draw_wrapped(c, ind.get("indicador", ""), MARGIN_X + 6, y_text, CONTENT_W - 12, size=8.5, leading=10)
+
     c.setFont("Helvetica-Bold", 8)
     c.setFillColor(BLACK)
     c.drawString(MARGIN_X + 6, y_text - 2, f"Meta: {ind.get('meta', '')}")
@@ -514,13 +546,14 @@ def draw_indicator(c: canvas.Canvas, ind: Dict, p_num: int, a_idx: int, i_idx: i
     obs_x = MARGIN_X + 3.1 * inch
     obs_y = y - 72
     obs_w = CONTENT_W - 3.2 * inch
+
     text_field(c, f"obs_ind_{p_num}_{a_idx}_{i_idx}", obs_x, obs_y, obs_w, 35, editable)
+
     c.setFont("Helvetica-Bold", 7.5)
     c.setFillColor(BLUE)
     c.drawString(obs_x, y - 31, "Observación indicador/meta")
 
     return y - 88
-
 
 
 def draw_final_page(c: canvas.Canvas, control: Dict):
@@ -585,7 +618,6 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
     draw_footer_small(c)
     draw_final_page(c, control)
     c.save()
-
     buffer.seek(0)
     return buffer.read()
 
@@ -603,15 +635,12 @@ def preview_data(data: Dict):
     st.subheader("Vista previa del contenido extraído")
 
     col1, col2, col3 = st.columns(3)
-
     with col1:
         st.write("**Delegación:**", data.get("delegacion", ""))
         st.write("**Región:**", data.get("region", ""))
-
     with col2:
         st.write("**Versión:**", data.get("version", ""))
         st.write("**Estado:**", data.get("estado", ""))
-
     with col3:
         st.write("**Elaborado por:**", data.get("elaborado_por", ""))
         st.write("**Cargo:**", data.get("cargo", ""))
@@ -656,12 +685,11 @@ def main():
     uploaded_pdf = st.file_uploader("Subir PDF de propuesta", type=["pdf"])
 
     st.subheader("Datos de control documental")
-
     generado_por = st.text_input("Nombre de quien genera el documento")
     cargo_generador = st.text_input("Cargo de quien genera el documento")
     dependencia_generador = st.text_input(
         "Dependencia / Unidad",
-        value="Coordinación Nacional - Estrategia Sembremos Seguridad"
+        value="Coordinación Nacional - Estrategia Sembremos Seguridad",
     )
 
     output_type = st.radio(
@@ -691,18 +719,13 @@ def main():
                 generado_por.strip(),
                 cargo_generador.strip(),
                 dependencia_generador.strip(),
-                output_type
+                output_type,
             )
 
             pdf_bytes = make_pdf(data, output_type, control)
             output_name = make_output_filename(uploaded_pdf.name, output_type, control["codigo"])
 
             st.success("PDF generado correctamente.")
-            st.info(
-                f"Código de control: {control['codigo']} | "
-                f"Fecha: {control['fecha']} {control['hora']}"
-            )
-
             st.download_button(
                 "Descargar PDF generado",
                 data=pdf_bytes,
