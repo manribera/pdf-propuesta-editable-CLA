@@ -1,9 +1,10 @@
+
 import io
 import re
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 import fitz  # PyMuPDF
 import streamlit as st
@@ -21,7 +22,6 @@ try:
 except Exception:
     gspread = None
     Credentials = None
-
 
 # =====================================================
 # CONFIGURACIÓN GENERAL
@@ -88,6 +88,7 @@ def crear_control(data: Dict, generado_por: str, cargo: str, dependencia: str, o
     }
 
 
+
 # =====================================================
 # GOOGLE SHEETS - USUARIOS Y CONTROL DE VERSIONES
 # =====================================================
@@ -113,58 +114,47 @@ def get_spreadsheet_id() -> str:
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
-    def get_workbook():
+    if gspread is None or Credentials is None:
+        raise RuntimeError(
+            "Faltan dependencias. Agregue gspread y google-auth en requirements.txt."
+        )
+
+    try:
+        creds_info = dict(st.secrets["gcp_service_account"])
+    except Exception as exc:
+        raise RuntimeError(
+            "No se encontraron credenciales [gcp_service_account] en Secrets."
+        ) from exc
+
+    try:
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        credentials = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        return gspread.authorize(credentials)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Error autenticando Google Sheets: {type(exc).__name__} - {repr(exc)}"
+        ) from exc
+
+
+def get_workbook():
     sheet_id = get_spreadsheet_id()
     if not sheet_id:
-        raise RuntimeError(
-            "No se encontró el ID del Google Sheet. Configure GOOGLE_SHEET_ID en secrets."
-        )
+        raise RuntimeError("No se encontró GOOGLE_SHEET_ID en Secrets.")
 
     try:
         return get_gspread_client().open_by_key(sheet_id)
-    except Exception as e:
-        raise RuntimeError(
-            f"Error abriendo el libro Google Sheet: {type(e).__name__} - {repr(e)}"
-        )
-
-
-def get_worksheet(nombre_hoja: str):
-    wb = get_workbook()
-    try:
-        return wb.worksheet(nombre_hoja)
     except Exception as exc:
         raise RuntimeError(
-            f"No existe o no se pudo acceder a la hoja requerida: {nombre_hoja}. "
-            f"Error real: {type(exc).__name__} - {repr(exc)}"
-        )
-    try:
-        creds_info = dict(st.secrets["gcp_service_account"])
-
-        credentials = Credentials.from_service_account_info(
-            creds_info,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
-
-        client = gspread.authorize(credentials)
-        return client
-
-    except Exception as e:
-        st.error(f"ERROR GOOGLE REAL: {type(e).__name__} - {repr(e)}")
-        st.stop()
-    sheet_id = get_spreadsheet_id()
-    if not sheet_id:
-        raise RuntimeError(
-            "No se encontró el ID del Google Sheet. Configure GOOGLE_SHEET_ID en secrets."
-        )
-    return get_gspread_client().open_by_key(sheet_id)
+            f"Error abriendo el libro Google Sheet: {type(exc).__name__} - {repr(exc)}"
+        ) from exc
 
 
 def get_worksheet(nombre_hoja: str):
-    wb = get_workbook()
     try:
+        wb = get_workbook()
         return wb.worksheet(nombre_hoja)
     except Exception as exc:
         raise RuntimeError(
@@ -193,10 +183,7 @@ def obtener_usuarios_activos() -> List[Dict[str, str]]:
         activo = normalizar_si_no(row.get("ACTIVO", ""))
 
         if nombre and activo == "SI":
-            usuarios.append({
-                "NOMBRE": nombre,
-                "CARGO": cargo,
-            })
+            usuarios.append({"NOMBRE": nombre, "CARGO": cargo})
 
     usuarios.sort(key=lambda x: x["NOMBRE"])
     return usuarios
@@ -285,22 +272,11 @@ def registrar_version_pdf(
     fecha_version = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     ws.append_row(
-        [
-            id_registro,
-            fecha_version,
-            delegacion,
-            version,
-            tipo_documento,
-            estado,
-            usuario,
-            cargo,
-        ],
+        [id_registro, fecha_version, delegacion, version, tipo_documento, estado, usuario, cargo],
         value_input_option="USER_ENTERED",
     )
 
-    # Limpia caché para que el siguiente cálculo de versión lea el dato nuevo.
     st.cache_data.clear()
-
     return True, id_registro
 
 
@@ -716,13 +692,13 @@ def draw_footer_small(c: canvas.Canvas):
 def draw_instructions(c: canvas.Canvas, data: Dict, page_state: Dict) -> float:
     draw_internal_header(c, page_state)
     y = PAGE_H - 1.05 * inch
-    y = draw_section_bar(c, "INSTRUCCIONES PARA LA VALIDACIÓN", y)
+    y = draw_section_bar(c, "INSTRUCCIONES PARA LA REVISIÓN", y)
     text = (
-        "Revise integralmente la propuesta presentada, verificando la coherencia entre la problemática identificada, "
-        "el análisis estructural, las líneas de acción, las acciones estratégicas, los indicadores, las metas, los líderes "
-        "estratégicos y los cogestores propuestos. Consigne observaciones, recomendaciones o ajustes sugeridos únicamente "
-        "cuando contribuyan al fortalecimiento de la propuesta evaluada. Procure que las observaciones sean claras, "
-        "específicas y orientadas a la mejora. No olvide guardar el documento una vez finalizada la revisión."
+        "El presente documento contiene la propuesta preliminar de líneas de acción, acciones estratégicas e indicadores "
+        "construidos a partir del análisis territorial. La persona revisora deberá verificar la coherencia entre la problemática "
+        "priorizada, la línea de acción propuesta, la acción estratégica definida, los indicadores planteados, las metas, unidades "
+        "y el líder estratégico asignado. Las observaciones registradas servirán como insumo para la elaboración de la versión "
+        "corregida o versión final. No Olvide guardar el documento una vez finalizado"
     )
     y = draw_wrapped(c, text, MARGIN_X, y, CONTENT_W, size=9, leading=12) - 12
     return y
@@ -763,23 +739,14 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
         for a_idx, action in enumerate(actions, start=1):
             y = draw_action(c, action, number, a_idx, y, page_state, editable)
 
-    y = ensure_space(c, y, 180, page_state)
-    y = draw_label(c, "Resultado de la validación de la propuesta", y)
-    y = draw_wrapped(
-        c,
-        "Seleccione la opción que mejor refleje el resultado de la revisión técnica realizada.",
-        MARGIN_X,
-        y,
-        CONTENT_W,
-        size=8,
-        leading=10,
-    ) - 2
+    y = ensure_space(c, y, 130, page_state)
+    y = draw_label(c, "Resultado de revisión de la problemática", y)
 
     options = [
-        "Validada",
-        "Validada con observaciones o recomendaciones",
-        "Validada con ajustes parciales sugeridos",
-        "Validada con ajustes integrales sugeridos",
+        "Sin observaciones",
+        "Con observaciones de mejora",
+        "Requiere reformulación parcial",
+        "Requiere reformulación total",
     ]
 
     for opt_idx, option in enumerate(options, start=1):
@@ -790,34 +757,9 @@ def draw_problematic(c: canvas.Canvas, prob: Dict, number: int, y: float, page_s
         y -= 15
 
     y -= 5
-    y = draw_label(c, "Observaciones, recomendaciones o ajustes sugeridos", y)
-    text_field(c, f"obs_general_{number}", MARGIN_X, y - 64, CONTENT_W, 60, editable)
-    y -= 76
-
-    y = draw_wrapped(
-        c,
-        "Los ajustes sugeridos podrán referirse a la problemática identificada, el análisis estructural, "
-        "las líneas de acción, las acciones estratégicas, los indicadores, los líderes estratégicos o los cogestores propuestos.",
-        MARGIN_X,
-        y,
-        CONTENT_W,
-        size=7.5,
-        leading=9,
-    ) - 8
-
-    y = ensure_space(c, y, 85, page_state)
-    y = draw_label(c, "Datos de la validación", y)
-
-    c.setFont("Helvetica-Bold", 8.5)
-    c.setFillColor(BLUE)
-    c.drawString(MARGIN_X, y, "Nombre completo de quien emite la validación:")
-    text_field(c, f"nombre_validador_{number}", MARGIN_X + 2.65 * inch, y - 4, CONTENT_W - 2.65 * inch, 14, editable)
-    y -= 22
-
-    c.drawString(MARGIN_X, y, "Fecha de emisión de observaciones o validación:")
-    text_field(c, f"fecha_validacion_{number}", MARGIN_X + 2.85 * inch, y - 4, 1.6 * inch, 14, editable)
-    y -= 28
-
+    y = draw_label(c, "Observaciones generales de la problemática", y)
+    text_field(c, f"obs_general_{number}", MARGIN_X, y - 58, CONTENT_W, 55, editable)
+    y -= 72
     return y
 
 
@@ -946,7 +888,6 @@ def make_pdf(data: Dict, output_type: str, control: Dict) -> bytes:
 # STREAMLIT UI
 # =====================================================
 def make_output_filename(original_name: str, output_type: str, codigo_control: str, delegacion: str, version: str) -> str:
-    base = limpiar_nombre_archivo(Path(original_name).stem)
     deleg = limpiar_nombre_archivo(delegacion)
     tipo = "EDITABLE" if output_type == "editable" else "NO_EDITABLE_FINAL"
     fecha = datetime.now().strftime("%Y-%m-%d")
@@ -993,7 +934,6 @@ def preview_data(data: Dict):
                     )
 
 
-
 def render_brand_footer():
     st.markdown("---")
     st.caption("SIGESS 2026 · Editor de Propuestas CLA - ESS · Versión 1.0")
@@ -1011,9 +951,6 @@ def main():
         """
     )
 
-    # -------------------------------------------------
-    # Usuario desde catálogo USUARIOS_CLA
-    # -------------------------------------------------
     st.subheader("Usuario generador")
 
     try:
@@ -1087,10 +1024,9 @@ def main():
                 with col_c:
                     st.metric("Estado", estado_version)
             except Exception as exc:
-                st.error(f"No se pudo preparar el control de versiones: {exc}")
+                st.error(f"No se pudo preparar el control de versiones: {type(exc).__name__} - {repr(exc)}")
                 st.stop()
         else:
-            siguiente_version = ""
             st.error("No se puede calcular versión sin delegación.")
             st.stop()
 
@@ -1122,7 +1058,6 @@ def main():
                 )
                 st.stop()
 
-            # Recalcular justo antes de guardar, para evitar versiones desactualizadas.
             registros = leer_control_versiones()
             version_final = obtener_siguiente_version(data.get("delegacion", ""), registros)
 
@@ -1175,7 +1110,7 @@ def main():
             )
 
     except Exception as exc:
-        st.error(f"No se pudo procesar el PDF: {exc}")
+        st.error(f"No se pudo procesar el PDF: {type(exc).__name__} - {repr(exc)}")
 
     render_brand_footer()
 
