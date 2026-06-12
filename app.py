@@ -591,7 +591,7 @@ def draw_indicator(c: canvas.Canvas, ind: Dict, p_num: int, a_idx: int, i_idx: i
     return y - 88
 
 
-def draw_final_page(c: canvas.Canvas, control: Dict):
+def draw_final_page(c: canvas.Canvas, control: Dict, editable: bool):
     c.showPage()
     y = PAGE_H - 1.25 * inch
     y = draw_logo_center(c, y, size=1.65 * inch)
