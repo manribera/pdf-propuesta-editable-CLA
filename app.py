@@ -13,6 +13,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from PIL import Image as PILImage
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
 # =====================================================
@@ -340,10 +341,33 @@ def checkbox(c: canvas.Canvas, name: str, x: float, y: float, editable: bool):
 # =====================================================
 # DIBUJO DEL PDF
 # =====================================================
+def get_logo_path_for_pdf():
+    if not LOGO_PATH.exists():
+        return None
+
+    try:
+        img = PILImage.open(LOGO_PATH).convert("RGBA")
+        pixels = img.load()
+
+        azul = (11, 46, 74)
+
+        for y in range(img.height):
+            for x in range(img.width):
+                r, g, b, a = pixels[x, y]
+                if a > 0 and (r + g + b) < 740:
+                    pixels[x, y] = (azul[0], azul[1], azul[2], a)
+
+        img.save(LOGO_BLUE_PATH)
+        return LOGO_BLUE_PATH
+
+    except Exception:
+        return LOGO_PATH
 def draw_logo_center(c: canvas.Canvas, y: float, size: float = 1.7 * inch) -> float:
-    if LOGO_PATH.exists():
-        try:
-            img = ImageReader(str(LOGO_PATH))
+logo_path = get_logo_path_for_pdf()
+
+if logo_path:
+    try:
+        img = ImageReader(str(logo_path))
             x = (PAGE_W - size) / 2
             c.drawImage(img, x, y - size, width=size, height=size, preserveAspectRatio=True, mask="auto")
             return y - size - 16
