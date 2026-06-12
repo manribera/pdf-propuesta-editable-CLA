@@ -363,16 +363,25 @@ def get_logo_path_for_pdf():
     except Exception:
         return LOGO_PATH
 def draw_logo_center(c: canvas.Canvas, y: float, size: float = 1.7 * inch) -> float:
-logo_path = get_logo_path_for_pdf()
+    logo_path = get_logo_path_for_pdf()
 
-if logo_path:
-    try:
-        img = ImageReader(str(logo_path))
+    if logo_path:
+        try:
+            img = ImageReader(str(logo_path))
             x = (PAGE_W - size) / 2
-            c.drawImage(img, x, y - size, width=size, height=size, preserveAspectRatio=True, mask="auto")
+            c.drawImage(
+                img,
+                x,
+                y - size,
+                width=size,
+                height=size,
+                preserveAspectRatio=True,
+                mask="auto"
+            )
             return y - size - 16
         except Exception:
             return y
+
     return y
 
 
