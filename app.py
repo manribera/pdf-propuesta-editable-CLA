@@ -22,6 +22,7 @@ APP_TITLE = "Editor de Propuestas CLA - ESS"
 YEAR = "2026"
 CONTACT_EMAIL = "sembremosseguridad.dppp@msp.go.cr"
 LOGO_PATH = Path("assetslogo_ess.png")
+LOGO_BLUE_PATH = Path("logo_ess_azul.png")
 
 PAGE_W, PAGE_H = letter
 MARGIN_X = 0.55 * inch
@@ -437,7 +438,7 @@ def draw_instructions(c: canvas.Canvas, data: Dict, page_state: Dict) -> float:
         "construidos a partir del análisis territorial. La persona revisora deberá verificar la coherencia entre la problemática "
         "priorizada, la línea de acción propuesta, la acción estratégica definida, los indicadores planteados, las metas, unidades "
         "y el líder estratégico asignado. Las observaciones registradas servirán como insumo para la elaboración de la versión "
-        "corregida o versión final."
+        "corregida o versión final. No Olvide guardar el documento una vez finalizado"
     )
     y = draw_wrapped(c, text, MARGIN_X, y, CONTENT_W, size=9, leading=12) - 12
     return y
