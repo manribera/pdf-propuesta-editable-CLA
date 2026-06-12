@@ -155,7 +155,10 @@ def get_worksheet(nombre_hoja: str):
     try:
         return wb.worksheet(nombre_hoja)
     except Exception as exc:
-        raise RuntimeError(f"No existe la hoja requerida: {nombre_hoja}") from exc
+        raise RuntimeError(
+            f"No existe o no se pudo acceder a la hoja requerida: {nombre_hoja}. "
+            f"Error real: {type(exc).__name__} - {repr(exc)}"
+        ) from exc
 
 
 def normalizar(valor: str) -> str:
@@ -1004,7 +1007,10 @@ def main():
     try:
         usuarios = obtener_usuarios_activos()
     except Exception as exc:
-        st.error(f"No se pudo cargar la hoja {SHEET_USUARIOS}: {exc}")
+        st.error(
+            f"No se pudo cargar la hoja {SHEET_USUARIOS}: "
+            f"{type(exc).__name__} - {repr(exc)}"
+        )
         st.stop()
 
     if not usuarios:
